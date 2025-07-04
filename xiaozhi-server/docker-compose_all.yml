@@ -1,0 +1,114 @@
+# Docker安装全模块
+
+version: '3'
+services:
+  # Server模块
+  xiaozhi-esp32-server:
+    image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:server_latest
+    container_name: xiaozhi-esp32-server
+    depends_on:
+      - xiaozhi-esp32-server-db
+      - xiaozhi-esp32-server-redis
+    restart: always
+    networks:
+      - default
+    ports:
+      # ws服务端
+      - "8000:8000"
+      # http服务的端口，用于视觉分析接口
+      - "8003:8003"
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      # 配置文件目录
+      - ./data:/opt/xiaozhi-esp32-server/data
+      # 模型文件挂接，很重要 ##!!0704deh:把模型文件放到~/models目录下了，方便git代码
+      - ../../models/SenseVoiceSmall/model.pt:/opt/xiaozhi-esp32-server/models/SenseVoiceSmall/model.pt
+
+  # manager-api和manager-web模块
+  xiaozhi-esp32-server-web:
+    image: ghcr.nju.edu.cn/xinnan-tech/xiaozhi-esp32-server:web_latest
+    container_name: xiaozhi-esp32-server-web
+    restart: always
+    networks:
+      - default
+    depends_on:
+      xiaozhi-esp32-server-db:
+        condition: service_healthy
+      xiaozhi-esp32-server-redis:
+        condition: service_healthy
+    ports:
+       # 智控台
+       - "8002:8002"  # 由nginx统一对外暴露
+    environment:
+      - TZ=Asia/Shanghai
+      - SPRING_DATASOURCE_DRUID_URL=jdbc:mysql://xiaozhi-esp32-server-db:3306/esp?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&nullCatalogMeansCurrent=true&connectTimeout=30000&socketTimeout=30000&autoReconnect=true&failOverReadOnly=false&maxReconnects=10
+      - SPRING_DATASOURCE_DRUID_USERNAME=xzesp
+      - SPRING_DATASOURCE_DRUID_PASSWORD=Qwer@1457
+      - SPRING_DATA_REDIS_HOST=xiaozhi-esp32-server-redis
+      - SPRING_DATA_REDIS_PASSWORD=
+      - SPRING_DATA_REDIS_PORT=6379
+    volumes:
+      # 配置文件目录
+      - ./uploadfile:/uploadfile
+      # 挂载本地 test 目录到 Spring Boot 静态资源目录
+      - ./test:/app/static/test
+  # 数据库模块
+  xiaozhi-esp32-server-db:
+    image: mysql:latest
+    container_name: xiaozhi-esp32-server-db
+    healthcheck:
+      test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
+      timeout: 45s
+      interval: 10s
+      retries: 10
+    restart: always
+    networks:
+      - default
+    expose:
+      - 3306
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+    environment:
+      - TZ=Asia/Shanghai
+      - MYSQL_ROOT_PASSWORD=Qwer@1457
+      - MYSQL_DATABASE=esp
+      - MYSQL_USER=xzesp
+      - MYSQL_PASSWORD=Qwer@1457
+      - MYSQL_INITDB_ARGS="--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci"
+  # redis模块
+  xiaozhi-esp32-server-redis:
+    image: redis
+    expose:
+      - 6379
+    container_name: xiaozhi-esp32-server-redis
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default
+  # nginx模块
+  nginx:
+    image: nginx:latest
+    restart: always
+    volumes:
+      # 使用自定义站点配置，挂载 test_page_nginx.conf 到 conf.d 目录
+      - ./nginx/conf.d/nginx.conf:/etc/nginx/conf.d/nginx.conf
+      # 挂载 test_page 目录，供静态访问
+      - ./html:/usr/share/nginx/html
+    ports:
+      - "80:80"
+    depends_on:
+      - xiaozhi-esp32-server-web
+      - xiaozhi-esp32-server
+      - xiaozhi-esp32-server-db
+      - xiaozhi-esp32-server-redis
+    networks:
+      - default
+networks:
+  default:

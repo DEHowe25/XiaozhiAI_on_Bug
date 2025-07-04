@@ -1,0 +1,2 @@
+# XiaozhiAI_on_Bug
+仅用作Bug服务器中的xiaozhiAI项目仓库
